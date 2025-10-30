@@ -13,11 +13,11 @@ In this git repository, we aim to reproduce turing patterns using a LSTM RNN and
 
 ## Gray-Scott Model
 
-$
+$$
 \begin{align}
     \frac{\partial U}{\partial t} &= D_U \nabla^2 U - UV^2 + F(1-U)\\
     \frac{\partial V}{\partial t} &= D_V \nabla^2 V + UV^2 - (F+k) V
 \end{align}
-$
+$$
 
 Where the terms containing $D_U$ and $D_V$ are the diffusion terms and the rest are reaction terms.
