@@ -5,6 +5,8 @@ import subprocess as sp
 import time
 from tqdm import tqdm
 
+from constants import *
+
 def laplacian(u,h):
     return (u[2:, 1:-1] + u[1:-1, 2:] + u[:-2, 1:-1] + u[1:-1, :-2] - 4 * u[1:-1, 1:-1]) / h**2
 
@@ -34,26 +36,24 @@ class GrayScott:
 
         self.x, self.y = np.meshgrid(np.linspace(x0-dx, x1+dx, Nnodes+2), np.linspace(x0-dx, x1+dx, Nnodes+2))
 
-        self.u = np.zeros((Nnodes+2, Nnodes+2))
-        self.v = np.zeros((Nnodes+2, Nnodes+2))
-        self.u[1:-1, 1:-1] = 1 - np.exp(-160*((self.x[1:-1, 1:-1]+0.05)**2 + (self.y[1:-1, 1:-1]+0.05)**2))
-        self.v[1:-1, 1:-1] = np.exp(-160*((self.x[1:-1, 1:-1]-0.05)**2 + (self.y[1:-1, 1:-1]-0.05)**2))
+        self.U = np.zeros((Nnodes+2, Nnodes+2))
+        self.V = np.zeros((Nnodes+2, Nnodes+2))
+        self.U[1:-1, 1:-1] = 1 - np.exp(-160*((self.x[1:-1, 1:-1]+0.05)**2 + (self.y[1:-1, 1:-1]+0.05)**2))
+        self.V[1:-1, 1:-1] = np.exp(-160*((self.x[1:-1, 1:-1]-0.05)**2 + (self.y[1:-1, 1:-1]-0.05)**2))
 
         # noise_strength = 0.05 # between 0.005 and 0.05
         # self.u[1:-1, 1:-1] += noise_strength * (np.random.rand(*self.u[1:-1, 1:-1].shape) - 0.5)
         # self.v[1:-1, 1:-1] += noise_strength * (np.random.rand(*self.v[1:-1, 1:-1].shape) - 0.5)
 
-        periodic_bound_conditions(self.u)
-        periodic_bound_conditions(self.v)
+        periodic_bound_conditions(self.U)
+        periodic_bound_conditions(self.V)
     
-    def create_frame(self, time, simulation_id):
-        if not os.path.exists("frames"):
-            os.makedirs("frames")
+    def create_frame(self, time):
 
         x = self.x[1:-1, 1:-1]
         y = self.y[1:-1, 1:-1]
-        U = self.u[1:-1, 1:-1]
-        V = self.v[1:-1, 1:-1]
+        U = self.U[1:-1, 1:-1]
+        V = self.V[1:-1, 1:-1]
 
         fig, ax = plt.subplots(1, 2, figsize=(16, 8))
         ax[0].contourf(x, y, U, levels=50, cmap='jet')
@@ -69,47 +69,40 @@ class GrayScott:
             a.set_ylim(lim)
             a.set_aspect('equal')
 
-        fig.savefig(os.path.join(f"frames/{simulation_id}", f"frame_{self.count_frame:06d}.png"), dpi=400)
+        fig.savefig(os.path.join(f"../frames/f{self.F:.3f}", f"frame_{self.count_frame:06d}.png"), dpi=400)
         plt.close(fig)
         self.count_frame += 1
 
-    def render_frames(self):
-        cmd = ['ffmpeg', '-framerate', '24', '-i',
-                os.path.join("./frames", 'frame_%06d.png'), '-b:v', '90M',
-                '-vcodec', 'mpeg4', os.path.join("./frames", 'render.mp4')]
-        sp.run(cmd)
+    def step(self):
+        U_view = self.U[1:-1, 1:-1]
+        V_view = self.V[1:-1, 1:-1]
 
-    def forward_step(self):
-        u_view = self.u[1:-1, 1:-1]
-        v_view = self.v[1:-1, 1:-1]
+        u_v2 = U_view * V_view * V_view
+        self.U[1:-1, 1:-1] += self.dt * (self.D_u * laplacian(self.U, self.dx) - u_v2 + self.F * (1 - U_view))
+        self.V[1:-1, 1:-1] += self.dt * (self.D_v * laplacian(self.V, self.dx) + u_v2 - (self.F + self.k) * V_view)
 
-        u_v2 = u_view * v_view * v_view
-        self.u[1:-1, 1:-1] += self.dt * (self.D_u * laplacian(self.u, self.dx) - u_v2 + self.F * (1 - u_view))
-        self.v[1:-1, 1:-1] += self.dt * (self.D_v * laplacian(self.v, self.dx) + u_v2 - (self.F + self.k) * v_view)
-
-        periodic_bound_conditions(self.u)
-        periodic_bound_conditions(self.v)
+        periodic_bound_conditions(self.U)
+        periodic_bound_conditions(self.V)
 
     def forward(self, t0, t1):
         t = t0
         s = 0
 
-        simulation_id = 0
-        while os.path.exists(f"frames/{simulation_id}"):
-            simulation_id += 1
-        os.makedirs(f"frames/{simulation_id}")
+        if not os.path.exists("../frames"):
+            os.makedirs("../frames")
+        if not os.path.exists(f"../frames/f{self.F:.3f}"):
+            os.makedirs(f"../frames/f{self.F:.3f}")
 
-        self.create_frame(t, simulation_id)
+        self.create_frame(t)
 
         total_steps = int((t1 - t0) / self.dt)
 
-        with tqdm(total=total_steps, desc=f"Simulation {simulation_id} | F={self.F:.3f}", ncols=100) as pbar:
+        with tqdm(total=total_steps, desc=f"F={self.F:.3f}, k={self.k:.3f}", ncols=100) as pbar:
             while t < t1:
-                if s % 100 == 0:
-                    #print(f"step={s}; time={t:e}")
-                    if self.gen and s > 0 :
-                        self.create_frame(t, simulation_id)
-                self.forward_step()
+                if self.gen and s > 0 :
+                    if s % 100 == 0:
+                        self.create_frame(t)
+                self.step()
                 t += self.dt
                 if (t1 - t) < self.dt:
                     self.dt = t1 - t
@@ -117,30 +110,13 @@ class GrayScott:
                 if s % 10 == 0:
                     pbar.update(10)
         
-        self.create_frame(t, simulation_id)
-        #self.render_frames()
-
+        self.create_frame(t)
+        return self.U, self.V
+    
 if __name__ == "__main__":
-    
-    F = 0.04 # baseline 0.04
-    F_values = np.linspace(0.3, 0.6, 10)
-    k = 0.06 # baseline 0.06
-    D_u = 2e-5 # baseline 2e-5
-    D_v = 1e-5 # balise 1e-5
-    x0 = -1 
-    x1 = 1
-    N = 256
-    time_length = 1000
-    
-    for F in F_values:
-        grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
+    for F_test in F_values:
+        grayscott = GrayScott(F=F_test, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
         t0 = time.perf_counter()
-        grayscott.forward(0, time_length)
+        U, V = grayscott.forward(0, time_length)
         t1 = time.perf_counter()
         print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
-
-    # grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
-    # t0 = time.perf_counter()
-    # grayscott.forward(0, time_length)
-    # t1 = time.perf_counter()
-    # print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
