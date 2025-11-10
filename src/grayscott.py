@@ -69,7 +69,7 @@ class GrayScott:
             a.set_ylim(lim)
             a.set_aspect('equal')
 
-        fig.savefig(os.path.join(f"../frames/f{self.F:.3f}", f"frame_{self.count_frame:06d}.png"), dpi=400)
+        fig.savefig(os.path.join(f"../frames", f"frame_t{time:.3f}_k{self.k:.3f}_f{self.F:.3f}.png"), dpi=400)
         plt.close(fig)
         self.count_frame += 1
 
@@ -90,10 +90,8 @@ class GrayScott:
 
         if not os.path.exists("../frames"):
             os.makedirs("../frames")
-        if not os.path.exists(f"../frames/f{self.F:.3f}"):
-            os.makedirs(f"../frames/f{self.F:.3f}")
 
-        self.create_frame(t)
+        # self.create_frame(t) # initial state of U and V
 
         total_steps = int((t1 - t0) / self.dt)
 
@@ -110,13 +108,14 @@ class GrayScott:
                 if s % 10 == 0:
                     pbar.update(10)
         
-        self.create_frame(t)
+        self.create_frame(t) # final state of U and V
         return self.U, self.V
     
 if __name__ == "__main__":
-    for F_test in F_values:
-        grayscott = GrayScott(F=F_test, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
-        t0 = time.perf_counter()
-        U, V = grayscott.forward(0, time_length)
-        t1 = time.perf_counter()
-        print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
+     for k_test in k_values:
+        for F_test in F_values:
+            grayscott = GrayScott(F=F_test, k=k_test, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
+            t0 = time.perf_counter()
+            U, V = grayscott.forward(0, time_length)
+            t1 = time.perf_counter()
+            print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
