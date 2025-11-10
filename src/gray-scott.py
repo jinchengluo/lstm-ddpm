@@ -130,17 +130,17 @@ if __name__ == "__main__":
     x0 = -1 
     x1 = 1
     N = 256
-    time_length = 5000
+    time_length = 1000
     
-    # for F in F_values:
-    #     grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
-    #     t0 = time.perf_counter()
-    #     grayscott.forward(0, time_length)
-    #     t1 = time.perf_counter()
-    #     print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
+    for F in F_values:
+        grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
+        t0 = time.perf_counter()
+        grayscott.forward(0, time_length)
+        t1 = time.perf_counter()
+        print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
 
-    grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
-    t0 = time.perf_counter()
-    grayscott.forward(0, time_length)
-    t1 = time.perf_counter()
-    print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")
+    # grayscott = GrayScott(F=F, k=k, D_u=D_u, D_v=D_v, x0=x0, x1=x1, N=N)
+    # t0 = time.perf_counter()
+    # grayscott.forward(0, time_length)
+    # t1 = time.perf_counter()
+    # print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")

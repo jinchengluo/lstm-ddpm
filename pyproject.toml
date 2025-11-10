@@ -9,5 +9,7 @@ dependencies = [
     "ipywidgets>=8.1.7",
     "matplotlib>=3.10.7",
     "numpy>=2.3.4",
+    "scipy>=1.16.3",
+    "the-well[benchmark]>=1.1.0",
     "tqdm>=4.67.1",
 ]
