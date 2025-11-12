@@ -58,7 +58,7 @@ class GrayScott:
         fig, ax = plt.subplots(1, 2, figsize=(16, 8))
         ax[0].contourf(x, y, U, levels=50, cmap='jet')
         ax[1].contourf(x, y, V, levels=50, cmap='jet')
-        fig.suptitle(f"time = {time:e}")
+        fig.suptitle(f"time = {time:e}, k={self.k:e}, F={self.F:e}")
         lim = (self.x0, self.x1)
         species = ("U", "V")
         for a, l in zip(ax, species):
@@ -91,6 +91,9 @@ class GrayScott:
         if not os.path.exists("../frames"):
             os.makedirs("../frames")
 
+        if not os.path.exists("../data"):
+            os.makedirs("../data")
+
         # self.create_frame(t) # initial state of U and V
 
         total_steps = int((t1 - t0) / self.dt)
@@ -109,6 +112,9 @@ class GrayScott:
                     pbar.update(10)
         
         self.create_frame(t) # final state of U and V
+
+        np.savetxt(f"../data/V_t{t:.3f}_k{self.k:.3f}_f{self.F:.3f}.csv", self.V[1:-1, 1:-1], delimiter=',')
+
         return self.U, self.V
     
 if __name__ == "__main__":
