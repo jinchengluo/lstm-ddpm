@@ -1,29 +1,58 @@
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer
+import torch
+import torch.nn as nn
 
-if __name__ == "__main__":
-    model = Unet(
-        dim = 64,
-        dim_mults = (1, 2, 4, 8),
-        flash_attn = True
-    )
+class SimpleUNet(nn.Module):
+    """A tiny U-Net for simple 32x32 patterns."""
+    def __init__(self):
+        super().__init__()
+        # Encoder
+        self.enc1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU())
+        self.enc2 = nn.Sequential(nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2))
+        # Decoder
+        self.dec1 = nn.Sequential(nn.Conv2d(64, 32, 3, padding=1), nn.ReLU())
+        self.out = nn.Conv2d(32, 1, 3, padding=1)
 
-    diffusion = GaussianDiffusion(
-        model,
-        image_size = 128,
-        timesteps = 1000,           # number of steps
-        sampling_timesteps = 250    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
-    )
+    def forward(self, x, t):
+        # (Simplification: Ignoring 't' embedding for brevity, assuming fixed noise schedule)
+        x1 = self.enc1(x)
+        x2 = self.enc2(x1)
+        x_up = torch.nn.functional.interpolate(x2, scale_factor=2)
+        return self.out(self.dec1(x_up + x1)) # Skip connection is crucial for gradient flow
 
-    trainer = Trainer(
-        diffusion,
-        '../frames',
-        train_batch_size = 32,
-        train_lr = 8e-5,
-        train_num_steps = 700000,         # total training steps
-        gradient_accumulate_every = 2,    # gradient accumulation steps
-        ema_decay = 0.995,                # exponential moving average decay
-        amp = True,                       # turn on mixed precision
-        calculate_fid = True              # whether to calculate fid during training
-    )
+class PatternDDPM(nn.Module):
+    def __init__(self, n_steps=50):
+        super().__init__()
+        self.network = SimpleUNet()
+        self.n_steps = n_steps
+        self.betas = torch.linspace(1e-4, 0.2, n_steps) # The "Inhibitor" schedule
+        self.alphas = 1 - self.betas
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0)
 
-    trainer.train()
+    def sample(self, shape):
+        """
+        Returns the full evolution history for RD comparison.
+        """
+        x = torch.randn(shape) # Start with Chaos
+        history = []
+        
+        with torch.no_grad():
+            for t in reversed(range(self.n_steps)):
+                # The Network acts as the ACTIVATOR (Structure formation)
+                predicted_noise = self.network(x, t)
+                
+                alpha = self.alphas[t]
+                alpha_bar = self.alpha_bars[t]
+                beta = self.betas[t]
+                
+                # Standard DDPM sampling math
+                if t > 0:
+                    noise = torch.randn_like(x)
+                else:
+                    noise = torch.zeros_like(x)
+                    
+                x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_bar))) * predicted_noise) + torch.sqrt(beta) * noise
+                
+                # Store for analysis
+                history.append(x.cpu().clone())
+                
+        return torch.stack(history) # Shape: [Time, C, H, W]
