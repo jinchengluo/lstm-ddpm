@@ -76,3 +76,46 @@ class LSTM(nn.Module):
             history["forget"].append(dynamics["forget"])
 
         return torch.stack(outputs, dim=1), history
+    
+    def generate_sequence(self, seed_data, future_steps=50):
+        """
+        Uses the trained model to generate future steps based on a seed sequence.
+
+        Args:
+            model: The trained LSTM model
+            seed_data: Tensor of shape [Seq_Len, Input_Size] (a single sequence)
+            future_steps: How many steps to generate
+            
+        Returns:
+            generated_seq: Tensor of shape [Future_Steps, Input_Size]
+        """
+        self.eval()
+        
+        # Initialize internal state
+        h = torch.zeros(1, self.hidden_size).to(seed_data.device)
+        c = torch.zeros(1, self.hidden_size).to(seed_data.device)
+        
+        generated_values = []
+        
+        with torch.no_grad():
+            # 1. Warm up the internal state (h, c) using the seed data
+            seq_len = seed_data.size(1)
+            for t in range(seq_len):
+                x_t = seed_data[t, :] # Shape (1, Input_Size)
+                h, c, _ = self.cell(x_t, h, c)
+            
+            # The model is now primed. The last 'h' contains the memory of the seed.
+            # We make the first prediction.
+            current_input = self.predictor(h) 
+            generated_values.append(current_input)
+            
+            # 2. Autoregressive Generation Loop
+            for _ in range(future_steps - 1):
+                # Feed the LAST PREDICTION as the NEXT INPUT
+                h, c, _ = self.cell(current_input, h, c)
+                pred = self.predictor(h)
+                
+                generated_values.append(pred)
+                current_input = pred # Update input for next step
+                
+        return torch.stack(generated_values, dim=1)

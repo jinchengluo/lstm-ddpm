@@ -5,12 +5,12 @@ class ContextUnet(nn.Module):
     def __init__(self, in_channels=1, n_feat=64, n_classes=10):
         super(ContextUnet, self).__init__()
         self.n_feat = n_feat
+        self.n_classes = n_classes
 
-        # FIX 1: Time Embedding must match the bottleneck size (2 * n_feat)
         self.time_mlp = nn.Sequential(
             nn.Linear(1, n_feat),
             nn.GELU(),
-            nn.Linear(n_feat, 2 * n_feat), # Changed output to 2*n_feat to match down2
+            nn.Linear(n_feat, 2 * n_feat),
         )
         
         self.init_conv = nn.Conv2d(in_channels, n_feat, 3, padding=1)
@@ -53,7 +53,6 @@ class DDPM(nn.Module):
         """
         Training Step
         """
-        # FIX 2: Create a 1D tensor [Batch], not 2D [Batch, 1]
         _ts = torch.randint(1, self.n_T + 1, (x.shape[0], )).to(self.device)
         
         noise = torch.randn_like(x) 
