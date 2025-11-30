@@ -117,5 +117,4 @@ class LSTM(nn.Module):
                 
                 generated_values.append(pred)
                 current_input = pred # Update input for next step
-                
-        return torch.stack(generated_values, dim=1)
+        return torch.stack(generated_values).squeeze(1)
