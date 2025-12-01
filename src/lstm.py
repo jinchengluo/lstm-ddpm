@@ -8,20 +8,20 @@ class LSTMCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
 
-        self.W_f = torch.randn(hidden_size, input_size)
-        self.W_i = torch.randn(hidden_size, input_size)
-        self.W_C = torch.randn(hidden_size, input_size)
-        self.W_o = torch.randn(hidden_size, input_size)
-        
-        self.U_f = torch.randn(hidden_size, hidden_size)
-        self.U_i = torch.randn(hidden_size, hidden_size)
-        self.U_C = torch.randn(hidden_size, hidden_size)
-        self.U_o = torch.randn(hidden_size, hidden_size)
+        self.W_f = nn.Parameter(torch.randn(hidden_size, input_size))
+        self.W_i = nn.Parameter(torch.randn(hidden_size, input_size))
+        self.W_C = nn.Parameter(torch.randn(hidden_size, input_size))
+        self.W_o = nn.Parameter(torch.randn(hidden_size, input_size))
 
-        self.b_f = torch.zeros((1, hidden_size))
-        self.b_i = torch.zeros((1, hidden_size))
-        self.b_C = torch.zeros((1, hidden_size))
-        self.b_o = torch.zeros((1, hidden_size))
+        self.U_f = nn.Parameter(torch.randn(hidden_size, hidden_size))
+        self.U_i = nn.Parameter(torch.randn(hidden_size, hidden_size))
+        self.U_C = nn.Parameter(torch.randn(hidden_size, hidden_size))
+        self.U_o = nn.Parameter(torch.randn(hidden_size, hidden_size))
+
+        self.b_f = nn.Parameter(torch.zeros(1, hidden_size))
+        self.b_i = nn.Parameter(torch.zeros(1, hidden_size))
+        self.b_C = nn.Parameter(torch.zeros(1, hidden_size))
+        self.b_o = nn.Parameter(torch.zeros(1, hidden_size))
 
 
     def sigmoid(self, z):

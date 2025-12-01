@@ -50,9 +50,6 @@ class DDPM(nn.Module):
             self.register_buffer(k, v)
 
     def forward(self, x, c=None):
-        """
-        Training Step
-        """
         _ts = torch.randint(1, self.n_T + 1, (x.shape[0], )).to(self.device)
         
         noise = torch.randn_like(x) 
