@@ -7,7 +7,7 @@ import random
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
 from timm.utils import ModelEmaV3
-import tqdm
+from tqdm import tqdm
 import torch.nn.functional as F
 import os
 
@@ -69,23 +69,23 @@ def train_ddpm(model,
         indices = list(range(len(data)))
         random.shuffle(indices)
         subset_indices = indices[:dataset_size]
-        train_dataset = Subset(train_dataset, subset_indices)
+        train_set = Subset(data, subset_indices)
 
-    train_loader = DataLoader(data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4)
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4)
 
     scheduler = DDPM_Scheduler(num_time_steps=num_time_steps)
     unet_model = model.to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(unet_model.parameters(), lr=lr)
     criterion = nn.MSELoss(reduction='mean')
     
     losses = []
 
-    ema = ModelEmaV3(model, decay=ema_decay)
+    ema = ModelEmaV3(unet_model, decay=ema_decay)
 
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['weights'])
+        unet_model.load_state_dict(checkpoint['weights'])
         ema.load_state_dict(checkpoint['ema'])
         optimizer.load_state_dict(checkpoint['optimizer'])
 
@@ -98,19 +98,19 @@ def train_ddpm(model,
             e = torch.randn_like(x, requires_grad=False)
             a = scheduler.alpha[t].view(batch_size,1,1,1).to(device)
             x = (torch.sqrt(a)*x) + (torch.sqrt(1-a)*e)
-            output = model(x, t)
+            output = unet_model(x, t)
             optimizer.zero_grad()
             loss = criterion(output, e)
             total_loss += loss.item()
             loss.backward()
             optimizer.step()
-            ema.update(model)
+            ema.update(unet_model)
         print(f'Epoch {i+1} | Loss {total_loss / (60000/batch_size):.5f}')
         losses.append(loss.item())
 
     os.makedirs('checkpoints', exist_ok=True)
     checkpoint = {
-        'weights': model.state_dict(),
+        'weights': unet_model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'ema': ema.state_dict()
     }
