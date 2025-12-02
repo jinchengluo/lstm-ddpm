@@ -3,18 +3,27 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
+import random
+from torch.utils.data import DataLoader
+from torch.utils.data import Subset
+from timm.utils import ModelEmaV3
+import tqdm
+import torch.nn.functional as F
+import os
+
+from ddpm import set_seed, DDPM_Scheduler
 
 
-def train_lstm(model, data, epochs=50, device="cpu"):
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+def train_lstm(model, data, num_epochs=50, lr=1e-4, device="cpu"):
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
     
-    print(f"--- Training LSTM on {device}---")
+    print(f"--- Training LSTM on {device} ---")
     model.train()
     
     losses = []
     
-    for epoch in range(epochs):
+    for epoch in range(num_epochs):
         optimizer.zero_grad()
 
         predictions, _ = model(data)
@@ -42,49 +51,70 @@ def train_lstm(model, data, epochs=50, device="cpu"):
     return losses
 
 
-def train_ddpm(model, data, epochs=50, device="cpu"):
-    optim = torch.optim.Adam(model.parameters(), lr=1e-4)
-    criterion = nn.MSELoss()
-
-    print(f"--- Training DDPM on {device}---")
-    model.train()
-
-    losses = []
+def train_ddpm(model,
+          data,
+          batch_size: int=64,
+          num_time_steps: int=1000,
+          num_epochs: int=15,
+          seed: int=-1,
+          ema_decay: float=0.9999,  
+          lr=2e-5,
+          checkpoint_path: str=None,
+          dataset_size: int=None,
+          device: str="cpu"):
     
-    for ep in range(epochs):
-        pbar = torch.optim.lr_scheduler
-        loss_ema = None
-        
-        for x, _ in data:
-            optim.zero_grad()
+    set_seed(random.randint(0, 2**32-1)) if seed == -1 else set_seed(seed)
+
+    if dataset_size is not None:
+        indices = list(range(len(data)))
+        random.shuffle(indices)
+        subset_indices = indices[:dataset_size]
+        train_dataset = Subset(train_dataset, subset_indices)
+
+    train_loader = DataLoader(data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4)
+
+    scheduler = DDPM_Scheduler(num_time_steps=num_time_steps)
+    unet_model = model.to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.MSELoss(reduction='mean')
+    
+    losses = []
+
+    ema = ModelEmaV3(model, decay=ema_decay)
+
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['weights'])
+        ema.load_state_dict(checkpoint['ema'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+
+    for i in range(num_epochs):
+        total_loss = 0
+        for bidx, (x,_) in enumerate(tqdm(train_loader, desc=f"Epoch {i+1}/{num_epochs}")):
             x = x.to(device)
-            
-            noise_pred, noise = model(x)
-            
-            loss = criterion(noise_pred, noise)
-
+            x = F.pad(x, (2,2,2,2))
+            t = torch.randint(0,num_time_steps,(batch_size,))
+            e = torch.randn_like(x, requires_grad=False)
+            a = scheduler.alpha[t].view(batch_size,1,1,1).to(device)
+            x = (torch.sqrt(a)*x) + (torch.sqrt(1-a)*e)
+            output = model(x, t)
+            optimizer.zero_grad()
+            loss = criterion(output, e)
+            total_loss += loss.item()
             loss.backward()
-            optim.step()
-            
-            if loss_ema is None: 
-                loss_ema = loss.item()
-            else: 
-                loss_ema = 0.95 * loss_ema + 0.05 * loss.item()
-        
-        losses.append(loss_ema)
-        print(f"Epoch {ep:02d} | Loss: {loss_ema:.4f}")
+            optimizer.step()
+            ema.update(model)
+        print(f'Epoch {i+1} | Loss {total_loss / (60000/batch_size):.5f}')
+        losses.append(loss.item())
 
-        # --- Visualization for sanity check ---
-        if ep % 5 == 0 or ep == epochs - 1:
-            model.eval()
-            with torch.no_grad():
-                x_gen, _ = model.sample(16, (1, 28, 28), device)
-                grid = make_grid(x_gen * -1 + 1, nrow=4) # Invert colors for visibility
-                plt.figure(figsize=(4,4))
-                plt.imshow(grid.permute(1, 2, 0).cpu().numpy())
-                plt.axis('off')
-                plt.title(f"Generated at Epoch {ep}")
-                plt.show()
+    os.makedirs('checkpoints', exist_ok=True)
+    checkpoint = {
+        'weights': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'ema': ema.state_dict()
+    }
+    torch.save(checkpoint, 'checkpoints/ddpm_checkpoint')
 
     return losses
 

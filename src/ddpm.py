@@ -1,96 +1,198 @@
+# Most of the code is from https://medium.com/data-science/diffusion-model-from-scratch-in-pytorch-ddpm-9d9760528946
+
+# Imports
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from einops import rearrange
+from typing import List
+import random
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+from timm.utils import ModelEmaV3 
 
-class ContextUnet(nn.Module):
-    def __init__(self, in_channels=1, n_feat=64, n_classes=10):
-        super(ContextUnet, self).__init__()
-        self.n_feat = n_feat
-        self.n_classes = n_classes
 
-        self.time_mlp = nn.Sequential(
-            nn.Linear(1, n_feat),
-            nn.GELU(),
-            nn.Linear(n_feat, 2 * n_feat),
-        )
-        
-        self.init_conv = nn.Conv2d(in_channels, n_feat, 3, padding=1)
-        self.down1 = nn.Sequential(nn.Conv2d(n_feat, n_feat, 3, padding=1), nn.GroupNorm(8, n_feat), nn.GELU())
-        self.down2 = nn.Sequential(nn.Conv2d(n_feat, 2 * n_feat, 3, padding=1), nn.GroupNorm(8, 2 * n_feat), nn.GELU())
-        
-        self.up1 = nn.Sequential(nn.Conv2d(2 * n_feat, n_feat, 3, padding=1), nn.GroupNorm(8, n_feat), nn.GELU())
-        self.up2 = nn.Sequential(nn.Conv2d(2 * n_feat, n_feat, 3, padding=1), nn.GroupNorm(8, n_feat), nn.GELU())
-        self.out = nn.Conv2d(2 * n_feat, in_channels, 3, padding=1)
+class SinusoidalEmbeddings(nn.Module):
+    def __init__(self, time_steps:int, embed_dim: int):
+        super().__init__()
+        position = torch.arange(time_steps).unsqueeze(1).float()
+        div = torch.exp(torch.arange(0, embed_dim, 2).float() * -(math.log(10000.0) / embed_dim))
+        embeddings = torch.zeros(time_steps, embed_dim, requires_grad=False)
+        embeddings[:, 0::2] = torch.sin(position * div)
+        embeddings[:, 1::2] = torch.cos(position * div)
+        self.embeddings = embeddings
 
     def forward(self, x, t):
-        # Embed time
-        t_emb = self.time_mlp(t) 
-        # Extend to [Batch, 2*n_feat, 1, 1] to broadcast over spatial dims
-        t_emb = t_emb[(..., ) + (None, ) * 2] 
+        embeds = self.embeddings[t].to(x.device)
+        return embeds[:, :, None, None]
+    
+# Residual Blocks
+class ResBlock(nn.Module):
+    def __init__(self, C: int, num_groups: int, dropout_prob: float):
+        super().__init__()
+        self.relu = nn.ReLU(inplace=True)
+        self.gnorm1 = nn.GroupNorm(num_groups=num_groups, num_channels=C)
+        self.gnorm2 = nn.GroupNorm(num_groups=num_groups, num_channels=C)
+        self.conv1 = nn.Conv2d(C, C, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(C, C, kernel_size=3, padding=1)
+        self.dropout = nn.Dropout(p=dropout_prob, inplace=True)
+
+    def forward(self, x, embeddings):
+        x = x + embeddings[:, :x.shape[1], :, :]
+        r = self.conv1(self.relu(self.gnorm1(x)))
+        r = self.dropout(r)
+        r = self.conv2(self.relu(self.gnorm2(r)))
+        return r + x
+    
+class Attention(nn.Module):
+    def __init__(self, C: int, num_heads:int , dropout_prob: float):
+        super().__init__()
+        self.proj1 = nn.Linear(C, C*3)
+        self.proj2 = nn.Linear(C, C)
+        self.num_heads = num_heads
+        self.dropout_prob = dropout_prob
+
+    def forward(self, x):
+        h, w = x.shape[2:]
+        x = rearrange(x, 'b c h w -> b (h w) c')
+        x = self.proj1(x)
+        x = rearrange(x, 'b L (C H K) -> K b H L C', K=3, H=self.num_heads)
+        q,k,v = x[0], x[1], x[2]
+        x = F.scaled_dot_product_attention(q,k,v, is_causal=False, dropout_p=self.dropout_prob)
+        x = rearrange(x, 'b H (h w) C -> b h w (C H)', h=h, w=w)
+        x = self.proj2(x)
+        return rearrange(x, 'b h w C -> b C h w')
+    
+class UnetLayer(nn.Module):
+    def __init__(self, 
+            upscale: bool, 
+            attention: bool, 
+            num_groups: int, 
+            dropout_prob: float,
+            num_heads: int,
+            C: int):
+        super().__init__()
+        self.ResBlock1 = ResBlock(C=C, num_groups=num_groups, dropout_prob=dropout_prob)
+        self.ResBlock2 = ResBlock(C=C, num_groups=num_groups, dropout_prob=dropout_prob)
+        if upscale:
+            self.conv = nn.ConvTranspose2d(C, C//2, kernel_size=4, stride=2, padding=1)
+        else:
+            self.conv = nn.Conv2d(C, C*2, kernel_size=3, stride=2, padding=1)
+        if attention:
+            self.attention_layer = Attention(C, num_heads=num_heads, dropout_prob=dropout_prob)
+
+    def forward(self, x, embeddings):
+        x = self.ResBlock1(x, embeddings)
+        if hasattr(self, 'attention_layer'):
+            x = self.attention_layer(x)
+        x = self.ResBlock2(x, embeddings)
+        return self.conv(x), x
+    
+class UNET(nn.Module):
+    def __init__(self,
+            Channels: List = [64, 128, 256, 512, 512, 384],
+            Attentions: List = [False, True, False, False, False, True],
+            Upscales: List = [False, False, False, True, True, True],
+            num_groups: int = 32,
+            dropout_prob: float = 0.1,
+            num_heads: int = 8,
+            input_channels: int = 1,
+            output_channels: int = 1,
+            time_steps: int = 1000):
+        super().__init__()
+        self.num_layers = len(Channels)
+        self.shallow_conv = nn.Conv2d(input_channels, Channels[0], kernel_size=3, padding=1)
+        out_channels = (Channels[-1]//2)+Channels[0]
+        self.late_conv = nn.Conv2d(out_channels, out_channels//2, kernel_size=3, padding=1)
+        self.output_conv = nn.Conv2d(out_channels//2, output_channels, kernel_size=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.embeddings = SinusoidalEmbeddings(time_steps=time_steps, embed_dim=max(Channels))
+        for i in range(self.num_layers):
+            layer = UnetLayer(
+                upscale=Upscales[i],
+                attention=Attentions[i],
+                num_groups=num_groups,
+                dropout_prob=dropout_prob,
+                C=Channels[i],
+                num_heads=num_heads
+            )
+            setattr(self, f'Layer{i+1}', layer)
+
+    def forward(self, x, t):
+        x = self.shallow_conv(x)
+        residuals = []
+        for i in range(self.num_layers//2):
+            layer = getattr(self, f'Layer{i+1}')
+            embeddings = self.embeddings(x, t)
+            x, r = layer(x, embeddings)
+            residuals.append(r)
+        for i in range(self.num_layers//2, self.num_layers):
+            layer = getattr(self, f'Layer{i+1}')
+            x = torch.concat((layer(x, embeddings)[0], residuals[self.num_layers-i-1]), dim=1)
+        return self.output_conv(self.relu(self.late_conv(x)))
         
-        x = self.init_conv(x)
-        down1 = self.down1(x)
-        down2 = self.down2(down1) 
-        
-        # Now shapes match: down2 is [B, 128, 28, 28] and t_emb is [B, 128, 1, 1]
-        up1 = self.up1(down2 + t_emb) 
-        
-        # Concatenate skip connection
-        up2 = self.up2(torch.cat((up1, down1), 1))
-        
-        return self.out(torch.cat((up2, x), 1))
+class DDPM_Scheduler(nn.Module):
+    def __init__(self, num_time_steps: int=1000):
+        super().__init__()
+        self.beta = torch.linspace(1e-4, 0.02, num_time_steps, requires_grad=False)
+        alpha = 1 - self.beta
+        self.alpha = torch.cumprod(alpha, dim=0).requires_grad_(False)
 
-class DDPM(nn.Module):
-    def __init__(self, nn_model, betas, n_T, device):
-        super(DDPM, self).__init__()
-        self.nn_model = nn_model.to(device)
-        self.n_T = n_T
-        self.device = device
+    def forward(self, t):
+        return self.beta[t], self.alpha[t]
+    
+def set_seed(seed: int = 42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
 
-        for k, v in betas.items():
-            self.register_buffer(k, v)
+def display_reverse(images):
+    fig, axes = plt.subplots(1, 10, figsize=(10,1))
+    for i, ax in enumerate(axes.flat):
+        x = images[i].squeeze(0)
+        x = rearrange(x, 'c h w -> h w c')
+        x = x.numpy()
+        ax.imshow(x)
+        ax.axis('off')
+    plt.show()
 
-    def forward(self, x, c=None):
-        _ts = torch.randint(1, self.n_T + 1, (x.shape[0], )).to(self.device)
-        
-        noise = torch.randn_like(x) 
-        
-        # Now indexing works correctly creating [Batch, 1, 1, 1]
-        x_t = (
-            self.sqrtab[_ts, None, None, None] * x
-            + self.sqrtmab[_ts, None, None, None] * noise
-        )
+def inference(checkpoint_path: str=None,
+              num_time_steps: int=1000,
+              ema_decay: float=0.9999, 
+              device: str="cpu"
+              ):
+    checkpoint = torch.load(checkpoint_path)
+    model = UNET().to(device)
+    model.load_state_dict(checkpoint['weights'])
+    ema = ModelEmaV3(model, decay=ema_decay)
+    ema.load_state_dict(checkpoint['ema'])
+    scheduler = DDPM_Scheduler(num_time_steps=num_time_steps)
+    times = [0,15,50,100,200,300,400,550,700,999]
+    images = []
 
-        # We normalize t to [0, 1] and ensure it has shape [Batch, 1] for the MLP
-        return self.nn_model(x_t, _ts.view(-1, 1) / self.n_T), noise
+    with torch.no_grad():
+        model = ema.module.eval()
+        for i in range(10):
+            z = torch.randn(1, 1, 32, 32)
+            for t in reversed(range(1, num_time_steps)):
+                t = [t]
+                temp = (scheduler.beta[t]/( (torch.sqrt(1-scheduler.alpha[t]))*(torch.sqrt(1-scheduler.beta[t])) ))
+                z = (1/(torch.sqrt(1-scheduler.beta[t])))*z - (temp*model(z.to(device),t).cpu())
+                if t[0] in times:
+                    images.append(z)
+                e = torch.randn(1, 1, 32, 32)
+                z = z + (e*torch.sqrt(scheduler.beta[t]))
+            temp = scheduler.beta[0]/( (torch.sqrt(1-scheduler.alpha[0]))*(torch.sqrt(1-scheduler.beta[0])) )
+            x = (1/(torch.sqrt(1-scheduler.beta[0])))*z - (temp*model(z.to(device),[0]).cpu())
 
-    def sample(self, n_sample, size, device):
-        x_i = torch.randn(n_sample, *size).to(device) 
-        history = [] 
-        
-        self.nn_model.eval()
-        with torch.no_grad():
-            for i in range(self.n_T, 0, -1):
-                t_is = torch.tensor([i / self.n_T]).to(device)
-                t_is = t_is.repeat(n_sample, 1) # Shape [Batch, 1]
-
-                z = torch.randn(n_sample, *size).to(device) if i > 1 else 0
-
-                eps = self.nn_model(x_i, t_is)
-                
-                # Use standard integers for indexing buffers
-                # We need to grab the specific value for timestep 'i'
-                # Since 'i' is an int, we don't need fancy indexing, just scalar access
-                
-                alpha_val = self.oneover_sqrta[i]
-                mab_val = self.mab_over_sqrtmab[i]
-                beta_val = self.sqrt_beta_t[i]
-                
-                x_i = (
-                    alpha_val * (x_i - eps * mab_val)
-                    + beta_val * z
-                )
-                
-                if i % 20 == 0 or i == 1:
-                    history.append(x_i.cpu().numpy())
-
-        return x_i, history
+            images.append(x)
+            x = rearrange(x.squeeze(0), 'c h w -> h w c').detach()
+            x = x.numpy()
+            plt.imshow(x)
+            plt.show()
+            display_reverse(images)
+            images = []
