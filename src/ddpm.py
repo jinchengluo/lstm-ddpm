@@ -175,25 +175,118 @@ def inference(ddpm_model,
     times = [0,15,50,100,200,300,400,550,700,999]
     images = []
 
+    history = {
+        "x": [],            # The image state
+        "drift": [],        # The deterministic update (Reaction)
+        "diffusion": [],    # The noise injection (Diffusion)
+        "time": []
+    }
+
+    print(f"Starting inference on {device} with {num_time_steps} steps...")
+
     with torch.no_grad():
         model = ema.module.eval()
-        for i in range(3):
-            z = torch.randn(1, 1, 32, 32)
-            for t in reversed(range(1, num_time_steps)):
-                t = [t]
-                temp = (scheduler.beta[t]/( (torch.sqrt(1-scheduler.alpha[t]))*(torch.sqrt(1-scheduler.beta[t])) ))
-                z = (1/(torch.sqrt(1-scheduler.beta[t])))*z - (temp*model(z.to(device),t).cpu())
-                if t[0] in times:
-                    images.append(z)
-                e = torch.randn(1, 1, 32, 32)
-                z = z + (e*torch.sqrt(scheduler.beta[t]))
-            temp = scheduler.beta[0]/( (torch.sqrt(1-scheduler.alpha[0]))*(torch.sqrt(1-scheduler.beta[0])) )
-            x = (1/(torch.sqrt(1-scheduler.beta[0])))*z - (temp*model(z.to(device),[0]).cpu())
 
-            images.append(x)
-            x = rearrange(x.squeeze(0), 'c h w -> h w c').detach()
-            x = x.numpy()
-            plt.imshow(x)
+        z = torch.randn(1, 1, 32, 32).to(device)
+        
+        # Reverse Diffusion Loop (T -> 0)
+        for t in reversed(range(1, num_time_steps)):
+            # Prepare inputs
+            t_idx = t 
+            t_tensor = torch.tensor([t], device=device) # Tensor for model input
+            t_list = [t] # List for scheduler indexing (from your original code)
+
+            # 1. Predict Noise (Epsilon)
+            pred_noise = model(z, t_tensor)
+            
+            # 2. Get Scheduler Params
+            # alpha[t] in your code corresponds to alpha_bar (cumulative product)
+            beta_t = scheduler.beta[t_list]
+            alpha_bar_t = scheduler.alpha[t_list] 
+            alpha_t = 1 - beta_t
+            
+            # 3. Calculate Deterministic Mean (Drift Target)
+            # Based on your original formula:
+            # coeff = beta / (sqrt(1-alpha_bar) * sqrt(alpha))
+            term1 = 1 / torch.sqrt(alpha_t)
+            term2 = beta_t / (torch.sqrt(1 - alpha_bar_t) * torch.sqrt(alpha_t))
+            
+            # The deterministic mean (x_{t-1} without noise)
+            mean = term1 * z - term2 * pred_noise.cpu()
+            
+            # SDE Drift = The vector field moving x_t -> mean
+            drift_term = mean - z
+
+            # 4. Calculate Stochastic Term (Diffusion)
+            noise = torch.randn(1, 1, 32, 32)
+            sigma = torch.sqrt(beta_t)
+            diffusion_term = sigma * noise
+            
+            # 5. Update State
+            z_prev = mean + diffusion_term
+            
+            # 6. Record History (Save every step or subsample)
+            # Saving as numpy to save GPU memory
+            history["x"].append(z.cpu().numpy())
+            history["drift"].append(drift_term.cpu().numpy())
+            history["diffusion"].append(diffusion_term.cpu().numpy())
+            history["time"].append(t)
+
+            # 7. Visualization Snapshots
+            if t in times:
+                images.append(z) # Keep tensor for display function
+            
+            # Move to next step
+            z = z_prev.to(device) # Ensure on device for next model pass
+
+        # Final Step (t=0) - usually deterministic or handled separately
+        # In your original code: x = (1/sqrt(alpha_0)) * z - ...
+        t0_list = [0]
+        beta_0 = scheduler.beta[t0_list]
+        alpha_bar_0 = scheduler.alpha[t0_list]
+        alpha_0 = 1 - beta_0
+        
+        # One last model prediction for t=0
+        pred_noise_0 = model(z, torch.tensor([0], device=device))
+        
+        term1_0 = 1 / torch.sqrt(alpha_0)
+        term2_0 = beta_0 / (torch.sqrt(1 - alpha_bar_0) * torch.sqrt(alpha_0))
+        
+        x_final = term1_0 * z - term2_0 * pred_noise_0.cpu()
+        
+        images.append(x_final)
+
+        # --- Plotting ---
+        # Only show if we have images (running in notebook)
+        if len(images) > 0:
+            final_img = x_final.cpu().squeeze().numpy()
+            # Handle dimension ordering if needed (C, H, W) -> (H, W, C) is handled in your display_reverse
+            
+            plt.figure(figsize=(4,4))
+            plt.imshow(final_img, cmap='gray')
+            plt.title("Final Result")
+            plt.axis('off')
             plt.show()
+            
             display_reverse(images)
-            images = []
+
+        # z = torch.randn(1, 1, 32, 32).to(device)
+        # for t in reversed(range(1, num_time_steps)):
+        #     t = [t]
+        #     temp = (scheduler.beta[t]/( (torch.sqrt(1-scheduler.alpha[t]))*(torch.sqrt(1-scheduler.beta[t])) ))
+        #     z = (1/(torch.sqrt(1-scheduler.beta[t])))*z - (temp*model(z.to(device),t).cpu())
+        #     if t[0] in times:
+        #         images.append(z)
+        #     e = torch.randn(1, 1, 32, 32)
+        #     z = z + (e*torch.sqrt(scheduler.beta[t]))
+        # temp = scheduler.beta[0]/( (torch.sqrt(1-scheduler.alpha[0]))*(torch.sqrt(1-scheduler.beta[0])) )
+        # x = (1/(torch.sqrt(1-scheduler.beta[0])))*z - (temp*model(z.to(device),[0]).cpu())
+
+        # images.append(x)
+        # x = rearrange(x.squeeze(0), 'c h w -> h w c').detach()
+        # x = x.numpy()
+        # plt.imshow(x)
+        # plt.show()
+        # display_reverse(images)
+        
+    return history
