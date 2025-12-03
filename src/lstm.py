@@ -96,6 +96,7 @@ class LSTM(nn.Module):
         c = torch.zeros(1, self.hidden_size).to(seed_data.device)
         
         generated_values = []
+        history = {"input": [], "forget": [], "cell_update": []}
         
         with torch.no_grad():
             # 1. Warm up the internal state (h, c) using the seed data
@@ -112,9 +113,13 @@ class LSTM(nn.Module):
             # 2. Autoregressive Generation Loop
             for _ in range(future_steps - 1):
                 # Feed the LAST PREDICTION as the NEXT INPUT
-                h, c, _ = self.cell(current_input, h, c)
+                h, c, dynamics = self.cell(current_input, h, c)
+                history["input"].append(dynamics["input"])
+                history["forget"].append(dynamics["forget"])
+                history["cell_update"].append(dynamics["cell_update"])
+
                 pred = self.predictor(h)
                 
                 generated_values.append(pred)
                 current_input = pred # Update input for next step
-        return torch.stack(generated_values).squeeze(1)
+        return torch.stack(generated_values).squeeze(1), history

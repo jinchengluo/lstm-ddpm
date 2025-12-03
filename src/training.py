@@ -65,6 +65,7 @@ def train_ddpm(model,
     
     set_seed(random.randint(0, 2**32-1)) if seed == -1 else set_seed(seed)
 
+    train_set = data
     if dataset_size is not None:
         indices = list(range(len(data)))
         random.shuffle(indices)
@@ -79,6 +80,7 @@ def train_ddpm(model,
     optimizer = optim.Adam(unet_model.parameters(), lr=lr)
     criterion = nn.MSELoss(reduction='mean')
     
+    print(f"--- Training DDPM on {device} ---")
     losses = []
 
     ema = ModelEmaV3(unet_model, decay=ema_decay)
@@ -105,7 +107,7 @@ def train_ddpm(model,
             loss.backward()
             optimizer.step()
             ema.update(unet_model)
-        print(f'Epoch {i+1} | Loss {total_loss / (60000/batch_size):.5f}')
+        print(f'Epoch {i+1} | Loss {total_loss / ((60000 if dataset_size is None else dataset_size)/batch_size):.5f}')
         losses.append(loss.item())
 
     os.makedirs('checkpoints', exist_ok=True)

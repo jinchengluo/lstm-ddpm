@@ -151,7 +151,7 @@ def set_seed(seed: int = 42):
     random.seed(seed)
 
 def display_reverse(images):
-    fig, axes = plt.subplots(1, 10, figsize=(10,1))
+    fig, axes = plt.subplots(1, len(images), figsize=(10,1))
     for i, ax in enumerate(axes.flat):
         x = images[i].squeeze(0)
         x = rearrange(x, 'c h w -> h w c')
@@ -160,13 +160,14 @@ def display_reverse(images):
         ax.axis('off')
     plt.show()
 
-def inference(checkpoint_path: str=None,
+def inference(ddpm_model,
+              checkpoint_path: str=None,
               num_time_steps: int=1000,
               ema_decay: float=0.9999, 
               device: str="cpu"
               ):
     checkpoint = torch.load(checkpoint_path)
-    model = UNET().to(device)
+    model = ddpm_model.to(device)
     model.load_state_dict(checkpoint['weights'])
     ema = ModelEmaV3(model, decay=ema_decay)
     ema.load_state_dict(checkpoint['ema'])
@@ -176,7 +177,7 @@ def inference(checkpoint_path: str=None,
 
     with torch.no_grad():
         model = ema.module.eval()
-        for i in range(10):
+        for i in range(3):
             z = torch.randn(1, 1, 32, 32)
             for t in reversed(range(1, num_time_steps)):
                 t = [t]
