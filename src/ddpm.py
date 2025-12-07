@@ -192,7 +192,6 @@ def inference(ddpm_model,
         # Reverse Diffusion Loop (T -> 0)
         for t in reversed(range(1, num_time_steps)):
             # Prepare inputs
-            t_idx = t 
             t_tensor = torch.tensor([t], device=device) # Tensor for model input
             t_list = [t] # List for scheduler indexing (from your original code)
 
@@ -252,8 +251,20 @@ def inference(ddpm_model,
         term1_0 = 1 / torch.sqrt(alpha_0)
         term2_0 = beta_0 / (torch.sqrt(1 - alpha_bar_0) * torch.sqrt(alpha_0))
         
+        mean_0 = term1 * z - term2 * pred_noise.cpu()
+        drift_term_0 = mean_0 - z
+
+        noise = torch.randn(1, 1, 32, 32)
+        sigma = torch.sqrt(beta_t)
+        diffusion_term_0 = sigma * noise
+
         x_final = term1_0 * z - term2_0 * pred_noise_0.cpu()
         
+        history["x"].append(x_final.cpu().numpy())
+        history["drift"].append(drift_term_0.cpu().numpy())
+        history["diffusion"].append(diffusion_term_0.cpu().numpy())
+        history["time"].append(0)
+
         images.append(x_final)
 
         # --- Plotting ---
@@ -263,7 +274,7 @@ def inference(ddpm_model,
             # Handle dimension ordering if needed (C, H, W) -> (H, W, C) is handled in your display_reverse
             
             plt.figure(figsize=(4,4))
-            plt.imshow(final_img, cmap='gray')
+            plt.imshow(final_img)
             plt.title("Final Result")
             plt.axis('off')
             plt.show()

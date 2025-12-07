@@ -43,7 +43,7 @@ class LSTMCell(nn.Module):
         
         h_t = o_t * self.tanh(C_t)
 
-        dynamics = {"input": i_t, "forget": f_t, "cell_update": C_tilda_t}
+        dynamics = {"input": i_t, "forget": f_t, "cell_update": C_tilda_t, "cell": C_t}
         return h_t, C_t, dynamics
     
 
@@ -63,7 +63,7 @@ class LSTM(nn.Module):
         c = torch.zeros(batch_size, self.hidden_size).to(x.device)
         
         outputs = []
-        history = {"input": [], "forget": []}
+        history = {"input": [], "forget": [], "cell_update": [], "cell": []}
 
         for t in range(seq_len):
             x_t = x[:, t, :]
@@ -74,6 +74,8 @@ class LSTM(nn.Module):
             # Store metrics
             history["input"].append(dynamics["input"])
             history["forget"].append(dynamics["forget"])
+            history["cell_update"].append(dynamics["cell_update"])
+            history["cell"].append(dynamics["cell"])
 
         return torch.stack(outputs, dim=1), history
     
@@ -96,7 +98,7 @@ class LSTM(nn.Module):
         c = torch.zeros(1, self.hidden_size).to(seed_data.device)
         
         generated_values = []
-        history = {"input": [], "forget": [], "cell_update": []}
+        history = {"input": [], "forget": [], "cell_update": [], "cell": []}
         
         with torch.no_grad():
             # 1. Warm up the internal state (h, c) using the seed data
@@ -117,6 +119,7 @@ class LSTM(nn.Module):
                 history["input"].append(dynamics["input"])
                 history["forget"].append(dynamics["forget"])
                 history["cell_update"].append(dynamics["cell_update"])
+                history["cell"].append(dynamics["cell"])
 
                 pred = self.predictor(h)
                 
