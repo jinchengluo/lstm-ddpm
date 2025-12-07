@@ -86,7 +86,10 @@ def train_ddpm(model,
     ema = ModelEmaV3(unet_model, decay=ema_decay)
 
     if checkpoint_path is not None:
-        checkpoint = torch.load(checkpoint_path)
+        if device=="cpu":
+            checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+        else:
+            checkpoint = torch.load(checkpoint_path)
         unet_model.load_state_dict(checkpoint['weights'])
         ema.load_state_dict(checkpoint['ema'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -117,48 +120,5 @@ def train_ddpm(model,
         'ema': ema.state_dict()
     }
     torch.save(checkpoint, 'checkpoints/ddpm_checkpoint')
-
-    return losses
-
-def train_ddpm_temp(ddpm_model, data, epochs=50):
-    optimizer = optim.Adam(ddpm_model.network.parameters(), lr=1e-3)
-    criterion = nn.MSELoss()
-    
-    print("\n--- Training DDPM ---")
-    ddpm_model.train()
-    
-    losses = []
-    
-    for epoch in range(epochs):
-        avg_loss = 0
-        # Simple batch processing (treating whole dataset as one batch for simplicity here)
-        x0 = data 
-        n = len(x0)
-        
-        optimizer.zero_grad()
-        
-        # 1. Sample random timesteps for each image in batch
-        t = torch.randint(0, ddpm_model.n_steps, (n,))
-        
-        # 2. Generate random noise (The "Inhibitor" we want to predict)
-        epsilon = torch.randn_like(x0)
-        
-        # 3. Add noise to image (Forward Diffusion)
-        # Formula: x_t = sqrt(alpha_bar) * x0 + sqrt(1-alpha_bar) * epsilon
-        a_bar = ddpm_model.alpha_bars[t].view(-1, 1, 1, 1)
-        noisy_image = torch.sqrt(a_bar) * x0 + torch.sqrt(1 - a_bar) * epsilon
-        
-        # 4. Model attempts to predict the noise
-        noise_pred = ddpm_model.network(noisy_image, t)
-        
-        # 5. Loss: How close was the predicted noise to the actual noise?
-        loss = criterion(noise_pred, epsilon)
-        
-        loss.backward()
-        optimizer.step()
-        
-        losses.append(loss)
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch}: Loss {loss:.5f}")
 
     return losses
