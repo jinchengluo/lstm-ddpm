@@ -44,7 +44,7 @@ def train_lstm(model, data, num_epochs=50, lr=1e-4, device="cpu"):
             print(f"Epoch {epoch}: Loss {loss.item():.5f}")
 
         if len(losses)>2 :
-            if losses[-2] - loss < 1e-6:
+            if torch.abs(losses[-2] - loss) < 1e-6:
                 print(f"Loss has converged enough with n_epochs of {epoch}")
                 break
         
