@@ -1,3 +1,5 @@
+# Most of the code is from https://github.com/cselab/gray-scott/tree/master
+
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -103,6 +105,7 @@ class GrayScott:
         step = 0
         diff_history = []
         V_history = [self.V[1:-1, 1:-1].copy()]
+        history = {"U": [self.U[1:-1, 1:-1].copy()], "V": [self.V[1:-1, 1:-1].copy()], "F": self.F, "k": self.k, "dx": self.dx, "D_u": self.D_u, "D_v": self.D_v}
 
         if frame and not os.path.exists("../frames"):
             os.makedirs("../frames")
@@ -120,10 +123,15 @@ class GrayScott:
                 
                 self.step()
 
+                U_curr = self.U[1:-1, 1:-1]
                 V_curr = self.V[1:-1, 1:-1]
+        
                 delta_V = np.mean(np.abs(V_curr - V_prev))
                 diff_history.append(delta_V)
                 V_history.append(V_curr)
+
+                history["U"].append(U_curr)
+                history["V"].append(V_curr)
 
                 # Check for stability (simple convergence check)
                 if step > 100 and delta_V < stability_threshold:
@@ -146,7 +154,7 @@ class GrayScott:
         if data:
             np.savetxt(f"../data/V_t{t:.3f}_k{self.k:.3f}_f{self.F:.3f}.csv", self.V[1:-1, 1:-1], delimiter=',')
 
-        return self.U, self.V, V_history, stability_time, diff_history
+        return self.U, self.V, V_history, stability_time, diff_history, history
     
 if __name__ == "__main__":
     #  for k_test in k_values:
@@ -159,6 +167,6 @@ if __name__ == "__main__":
 
     grayscott = GrayScott(F=F_DEFAULT, k=k_DEFAULT, D_u=Du_DEFAULT, D_v=Dv_DEFAULT, x0=x0, x1=x1, N=N)
     t0 = time.perf_counter()
-    U, V, _, stability_time, diff_history = grayscott.forward(0, time_length, frame=True, data=False)
+    U, V, _, stability_time, diff_history, history = grayscott.forward(0, time_length, frame=True, data=False)
     t1 = time.perf_counter()
     print(f"Execution time for a {time_length} ms sequence : {t1-t0} seconds")

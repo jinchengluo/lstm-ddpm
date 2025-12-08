@@ -166,11 +166,18 @@ def inference(ddpm_model,
               ema_decay: float=0.9999, 
               device: str="cpu"
               ):
-    checkpoint = torch.load(checkpoint_path)
+
     model = ddpm_model.to(device)
-    model.load_state_dict(checkpoint['weights'])
     ema = ModelEmaV3(model, decay=ema_decay)
-    ema.load_state_dict(checkpoint['ema'])
+
+    if checkpoint_path is not None:
+            if device=="cpu":
+                checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+            else:
+                checkpoint = torch.load(checkpoint_path)
+            model.load_state_dict(checkpoint['weights'])
+            ema.load_state_dict(checkpoint['ema'])
+
     scheduler = DDPM_Scheduler(num_time_steps=num_time_steps)
     times = [0,15,50,100,200,300,400,550,700,999]
     images = []

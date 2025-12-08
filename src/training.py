@@ -61,7 +61,8 @@ def train_ddpm(model,
           lr=2e-5,
           checkpoint_path: str=None,
           dataset_size: int=None,
-          device: str="cpu"):
+          device: str="cpu",
+          save: bool=False):
     
     set_seed(random.randint(0, 2**32-1)) if seed == -1 else set_seed(seed)
 
@@ -113,12 +114,13 @@ def train_ddpm(model,
         print(f'Epoch {i+1} | Loss {total_loss / ((60000 if dataset_size is None else dataset_size)/batch_size):.5f}')
         losses.append(loss.item())
 
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint = {
-        'weights': unet_model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'ema': ema.state_dict()
-    }
-    torch.save(checkpoint, 'checkpoints/ddpm_checkpoint')
+    if save :
+        os.makedirs('checkpoints', exist_ok=True)
+        checkpoint = {
+            'weights': unet_model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'ema': ema.state_dict()
+        }
+        torch.save(checkpoint, 'checkpoints/ddpm_checkpoint')
 
     return losses
