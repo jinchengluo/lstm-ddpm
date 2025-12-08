@@ -1,6 +1,5 @@
 # Most of the code is from https://medium.com/data-science/diffusion-model-from-scratch-in-pytorch-ddpm-9d9760528946
 
-# Imports
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +9,8 @@ import random
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-from timm.utils import ModelEmaV3 
+from timm.utils import ModelEmaV3
+import tqdm
 
 
 class SinusoidalEmbeddings(nn.Module):
@@ -197,7 +197,7 @@ def inference(ddpm_model,
         z = torch.randn(1, 1, 32, 32).to(device)
         
         # Reverse Diffusion Loop (T -> 0)
-        for t in reversed(range(1, num_time_steps)):
+        for t in tqdm(reversed(range(1, num_time_steps))):
             # Prepare inputs
             t_tensor = torch.tensor([t], device=device) # Tensor for model input
             t_list = [t] # List for scheduler indexing (from your original code)
