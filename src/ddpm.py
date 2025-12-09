@@ -10,8 +10,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from timm.utils import ModelEmaV3
-import tqdm
-
+from tqdm import tqdm
 
 class SinusoidalEmbeddings(nn.Module):
     def __init__(self, time_steps:int, embed_dim: int):
