@@ -197,7 +197,7 @@ def inference(ddpm_model,
         z = torch.randn(1, 1, 32, 32).to(device)
         
         # Reverse Diffusion Loop (T -> 0)
-        for t in tqdm(reversed(range(1, num_time_steps))):
+        for t in tqdm.tqdm(reversed(range(1, num_time_steps))):
             # Prepare inputs
             t_tensor = torch.tensor([t], device=device) # Tensor for model input
             t_list = [t] # List for scheduler indexing (from your original code)
