@@ -112,7 +112,7 @@ class GrayScott:
         if data and not os.path.exists("../data"):
             os.makedirs("../data")
 
-        self.create_frame(t)
+        # self.create_frame(t)
 
         total_steps = int((t1 - t0) / self.dt)
         stability_time = total_steps
