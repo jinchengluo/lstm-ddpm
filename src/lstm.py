@@ -116,10 +116,10 @@ class LSTM(nn.Module):
             for _ in range(future_steps - 1):
                 # Feed the LAST PREDICTION as the NEXT INPUT
                 h, c, dynamics = self.cell(current_input, h, c)
-                history["input"].append(dynamics["input"])
-                history["forget"].append(dynamics["forget"])
-                history["cell_update"].append(dynamics["cell_update"])
-                history["cell"].append(dynamics["cell"])
+                history["input"].append(dynamics["input"].detach().cpu())
+                history["forget"].append(dynamics["forget"].detach().cpu())
+                history["cell_update"].append(dynamics["cell_update"].detach().cpu())
+                history["cell"].append(dynamics["cell"].detach().cpu())
 
                 pred = self.predictor(h)
                 

@@ -130,8 +130,8 @@ class GrayScott:
                 diff_history.append(delta_V)
                 V_history.append(V_curr)
 
-                history["U"].append(U_curr)
-                history["V"].append(V_curr)
+                history["U"].append(U_curr.copy())
+                history["V"].append(V_curr.copy())
 
                 # Check for stability (simple convergence check)
                 if step > 100 and delta_V < stability_threshold:

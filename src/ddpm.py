@@ -233,9 +233,9 @@ def inference(ddpm_model,
             
             # 6. Record History (Save every step or subsample)
             # Saving as numpy to save GPU memory
-            history["x"].append(z.cpu().numpy())
-            history["drift"].append(drift_term.cpu().numpy())
-            history["diffusion"].append(diffusion_term.cpu().numpy())
+            history["x"].append(z.cpu().numpy().copy())
+            history["drift"].append(drift_term.cpu().numpy().copy())
+            history["diffusion"].append(diffusion_term.cpu().numpy().copy())
             history["time"].append(t)
 
             # 7. Visualization Snapshots
