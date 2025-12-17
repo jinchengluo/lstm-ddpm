@@ -1,4 +1,4 @@
-# A Comparative Study of Diffusion Models and Long Short-Term Memory Networks throught the Reaction–Diffusion Equation
+# A Comparative Study of Diffusion Models and Long Short-Term Memory Networks through the Reaction–Diffusion Equation
 
 *This is a Research Project led in the Mathematical Informatics laboratory at Nara Institute of Science and Technology and presented at the AROB-ISCB 2026 conference. Refer to the paper in* `paper/`.
 
